@@ -54,7 +54,7 @@ Then I moved onto to camera rigging to simulate the feeling of zooming in onto t
 
 <img src="../Snapshots/camera1.png" width="400"/>
 
-Putting the camera rig and keying it onto the main sequence.
+Putting the camera rig and keying it onto the main sequence and making final touches to the lightning to complete the scene.
 
 <img src="../Snapshots/camera2.png" width="400"/>
 

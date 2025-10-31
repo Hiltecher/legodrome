@@ -1,3 +1,14 @@
+## Inspiration
+
+Attached are sketches and inspiration pictures we used to come up with our diorama.
+
+<img src="../Snapshots/insp1.png"   width="400"/>
+<img src="../Snapshots/insp2.png"   width="400"/>
+<img src="../Snapshots/insp3.png"   width="400"/>
+<img src="../Snapshots/insp4.png"   width="400"/>
+<img src="../Snapshots/insp5.png"   width="400"/>
+<img src="../Snapshots/insp6.png"   width="400"/>
+
 ## Complete Formula 1 Lego Car with driver (by Ivan)
 
 Every race track needs a race car and as we are following a lego brick theme I wanted to design the car out of Lego bricks.

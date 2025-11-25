@@ -1,4 +1,5 @@
 import * as wm from 'https://wgpu-matrix.org/dist/3.x/wgpu-matrix.module.js';
+import { Camera } from './camera.js';
 
 async function fetchText(url) {
     const r = await fetch(url);
@@ -165,6 +166,9 @@ async function main() {
         format: canvasFormat,
     });
 
+    // --- INITIALISE CAMERA ---
+    const camera = new Camera(canvas);
+
     // ---- SHADERS ----
     const shaderCode = `
         struct VertexOut {
@@ -320,7 +324,7 @@ async function main() {
         const aspect = canvas.width / canvas.height;
         const fov = 35 * Math.PI / 180;
         const proj = wm.mat4.perspective(fov, aspect, 0.1, 100.0);
-        const view = wm.mat4.lookAt([-4, 3, 3], [0, 0, 0], [0, 1, 0]);
+        const view = camera.getMatrix();
         const vp = wm.mat4.multiply(proj, view);
 
         for (let i = 0; i < originalVertexData.length; i += 9) {

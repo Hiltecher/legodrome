@@ -1,6 +1,9 @@
 // importing wgpu-matrix library for matrix math operations
 import * as wm from 'https://wgpu-matrix.org/dist/3.x/wgpu-matrix.module.js';
 
+// Importing the camera module for navigating around the diorama
+import { Camera } from './camera.js';
+
 // helper function to read text from files, used to read and load shaders, obj and mtl files 
 async function readFile(url) {
     const response = await fetch(url);
@@ -271,11 +274,93 @@ async function main() {
     });
 
     // ---- SHADERS ----
-    // loading shader code from external file
-    const shaderCode = await readFile('shaders/shaders.wgsl');
-    // creating shader module from the loaded code
+    // We are embedding the shader directly here so we can add the lighting logic easier.
+    // This WGSL code calculates position, texture color, and spotlights.
+    const shaderCode = `
+        struct Uniforms {
+            // The camera matrix
+            viewProjectionMatrix : mat4x4<f32>,
+            // Where the camera is (for reflections)
+            cameraPosition : vec3<f32>,
+            // Padding required by WebGPU alignment
+            padding : f32,
+            // 1.0 = On, 0.0 = Off
+            lightToggle : f32,
+        };
+        // Group 0: Uniforms (Changes once per frame)
+        @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
+        struct VertexOut {
+            @builtin(position) Position : vec4<f32>,
+            @location(0) normal : vec3<f32>,
+            @location(1) uv : vec2<f32>,
+            @location(2) color : vec3<f32>,
+            @location(3) worldPos : vec3<f32>,  // New: Actual 3D position for lighting calculations
+        };
+
+        @vertex
+        fn vs_main(@location(0) pos : vec3<f32>, @location(1) norm : vec3<f32>, @location(2) uv : vec2<f32>, @location(3) col : vec3<f32>) -> VertexOut {
+            var out : VertexOut;
+            // Project the position to the screen using the Matrix
+            out.Position = uniforms.viewProjectionMatrix * vec4<f32>(pos, 1.0);
+            out.worldPos = pos; // Pass the real 3D position to the pixel shader
+            out.normal = norm;
+            out.uv = uv;
+            out.color = col;
+            return out;
+        }
+
+        // Group 1: Material (Changes per object)
+        @group(1) @binding(0) var mySampler : sampler;
+        @group(1) @binding(1) var myTexture : texture_2d<f32>;
+
+        // Helper function to calculate Spotlight logic
+        fn calcSpotlight(pos: vec3<f32>, dir: vec3<f32>, worldPos: vec3<f32>, normal: vec3<f32>, camPos: vec3<f32>) -> vec3<f32> {
+            let lightToPixel = normalize(pos - worldPos);
+            
+            // 1. Cone logic: Check if pixel is inside the spotlight beam
+            let angle = dot(-lightToPixel, normalize(dir));
+            if (angle < 0.9) { return vec3<f32>(0.0); } // Outside the cone? Return black.
+            
+            // 2. Diffuse: How much does the surface face the light?
+            let diff = max(dot(normal, lightToPixel), 0.0);
+            
+            // 3. Specular: Shiny reflection (Phong model)
+            let reflectDir = reflect(-lightToPixel, normal);
+            let viewDir = normalize(camPos - worldPos);
+            let spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // 32.0 = Shininess
+
+            // 4. Distance: Light gets weaker further away
+            let dist = distance(pos, worldPos);
+            let atten = 1.0 / (1.0 + 0.1 * dist + 0.05 * dist * dist);
+
+            // Combine results (Light color is warm white)
+            return (diff + spec) * vec3<f32>(1.0, 0.95, 0.8) * atten * 5.0;
+        }
+
+        @fragment
+        fn fs_main(in : VertexOut) -> @location(0) vec4<f32> {
+            // Get texture color mixed with vertex color
+            let texColor = textureSample(myTexture, mySampler, in.uv) * vec4<f32>(in.color, 1.0);
+            let normal = normalize(in.normal);
+            
+            // Ambient light (Base brightness so shadows aren't pitch black)
+            let ambient = vec3<f32>(0.2, 0.2, 0.25); 
+            
+            // Calculate two Spotlights (Left and Right TV stands)
+            let spot1 = calcSpotlight(vec3<f32>(-15.0, 15.0, -8.0), vec3<f32>(1.0, -0.8, 0.5), in.worldPos, normal, uniforms.cameraPosition);
+            let spot2 = calcSpotlight(vec3<f32>(-15.0, 15.0, 8.0), vec3<f32>(1.0, -0.8, -0.5), in.worldPos, normal, uniforms.cameraPosition);
+            
+            // Combine ambient + (Spotlights * ToggleSwitch)
+            let light = ambient + (spot1 + spot2) * uniforms.lightToggle;
+
+            return vec4<f32>(texColor.rgb * light, texColor.a);
+        }
+    `;
+    
+    // creating shader module from the code above
     const module = device.createShaderModule({
-        label: 'Simple Shader',
+        label: 'Lighting Shader',
         code: shaderCode
     });
 
@@ -318,6 +403,21 @@ async function main() {
             topology: 'triangle-list',
             cullMode: 'none',
         },
+    });
+
+    // ---- UNIFORM BUFFER SETUP ----
+    // Buffer to send global data like camera and lights to the GPU
+    // Allocate 128 bytes to be safe
+    const uniformBuffer = device.createBuffer({
+        size: 128,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Create bind group 0 (uniforms) 
+    // This group is shared by all objects in the scene
+    const bindGroup0 = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
     });
 
     // ---- LOADING GEOMETRY ----
@@ -407,7 +507,7 @@ async function main() {
             // use white texture for materials without textures 
             const finalTex = tex || whiteTexture;
             // create bind group connecting the texture and sampler to the shader
-            const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: sampler }, { binding: 1, resource: finalTex.createView() }] });
+            const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: [{ binding: 0, resource: sampler }, { binding: 1, resource: finalTex.createView() }] });
 
             // set vertical offset based on model name
             const modelOffsetY = model.name === 'Racecar' ? racecarOffsetY : legodromeOffsetY;
@@ -418,162 +518,116 @@ async function main() {
     }
 
     // ---- RENDER PASS ----
-    // defining how rendering is performed
     const renderPassDescriptor = {
         label: 'Main render pass',
         colorAttachments: [{
-            // background color to grey
-            clearValue: [0.2, 0.2, 0.2, 1.0],
-            // clear the attachment before rendering
-            loadOp: 'clear',
-            // save the results after rendering
-            storeOp: 'store',
+            view: undefined, // Assigned in loop
+            clearValue: [0.1, 0.1, 0.15, 1.0], // Dark sky colour
+            loadOp: 'clear', storeOp: 'store',
         }],
+        depthStencilAttachment: {
+            view: undefined, // Assigned in loop
+            depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'store',
+        }
     };
 
-    // variable to hold the depth texture for depth testing to eliminate artifacts
     let depthTexture = null;
-    // helper function to create or recreate the depth texture when canvas size changes
     function createDepthTexture() {
-        // destroy old depth texture 
-        if (depthTexture) depthTexture.destroy?.();
-        // create new depth texture matching current canvas dimensions
+        if (depthTexture) depthTexture.destroy();
         depthTexture = device.createTexture({
-            // set size of depth texture to match canvas width and height
-            size: { width: canvas.width, height: canvas.height },
+            size: [canvas.width, canvas.height],
             format: 'depth24plus',
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
     }
 
-    // main render function called every frame - render loop to redraw the scene every frame
+    // Initialise camera and lights
+    const camera = new Camera(canvas, 30, 0, 0.5);
+    let lightToggle = 1.0;
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key.toLowerCase() === 'l') {
+            lightToggle = lightToggle > 0.5 ? 0.0 : 1.0;
+            console.log("Lights:", lightToggle ? "ON" : "OFF");
+        }
+    });
+
     function render() {
-        // get device pixel ratio high quality displays to get proper resolution
+        // 1. Resize handling
         const dpr = window.devicePixelRatio || 1;
-        // get canvas bounding rectangle to determine display size
-        const rect = canvas.getBoundingClientRect();
-        // calculate actual pixel width accounting for device pixel ratio
-        const width = Math.max(1, Math.floor(rect.width * dpr));
-        // calculate actual pixel height accounting for device pixel ratio
-        const height = Math.max(1, Math.floor(rect.height * dpr));
-        // check if canvas size has changed
+        const width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+        const height = Math.max(1, Math.floor(canvas.clientHeight * dpr));
         if (canvas.width !== width || canvas.height !== height) {
-            // update canvas width to new size
             canvas.width = width;
-            // update canvas height to new size
             canvas.height = height;
-            // recreate depth texture to match new canvas size
             createDepthTexture();
         }
 
-        // calculateing aspect ratio for perspective projection (diorama style view)
-        const aspect = canvas.width / canvas.height;
-        // hardcoding desired fov
+        // 2. Update camera & matrices
+        camera.update();
         const fov = 35 * Math.PI / 180;
-        // getting the projection we need for 3D perspective
-        const proj = wm.mat4.perspective(fov, aspect, 0.1, 100.0);
-        // creating view matrix positioning camera looking at origin
-        const view = wm.mat4.lookAt([-4, 3, 3], [0, 0, 0], [0, 1, 0]);
-        // multiply projection and view matrices to get combined view-projection matrix
+        const proj = wm.mat4.perspective(fov, width / height, 0.1, 100.0);
+        const view = camera.getMatrix();
         const vp = wm.mat4.multiply(proj, view);
+        const camPos = camera.getPosition();
 
-        // iterating through each submesh to transform vertices
+        // 3. Upload uniforms (matrix + light info)
+        const f32 = new Float32Array(32); 
+        f32.set(vp, 0);                 // 0-15: ViewProjection
+        f32.set(camPos, 16);            // 16-18: Camera Position
+        f32.set([lightToggle], 20);     // 20: Light Toggle
+        device.queue.writeBuffer(uniformBuffer, 0, f32);
+
+        // 4. Update geometry
         for (const s of submeshes) {
-            // getting reference to original vertex data
             const orig = s.originalVertexData;
-            // getting reference to working vertex data 
             const work = s.workingVertexData;
-            // iterating through each vertex, 11 because each vertex has 11 floats
+            // Iterate vertices (stride 11)
             for (let i = 0; i < orig.length; i += 11) {
-                // applying model center offset and scale to x y z coordinate
-                let px = (orig[i + 0] - modelCenter[0]) * scale;
-                let py = (orig[i + 1] - modelCenter[1]) * scale + s.modelOffsetY;
-                let pz = (orig[i + 2] - modelCenter[2]) * scale;
+                // Apply scaling/positioning
+                let px = (orig[i+0] - modelCenter[0]) * scale;
+                let py = (orig[i+1] - modelCenter[1]) * scale + s.modelOffsetY;
+                let pz = (orig[i+2] - modelCenter[2]) * scale;
 
-                // applying transformations only for racecar model for proper positioning
                 if (s.model === 'Racecar') {
-                    // shifting racecar left and forward 
-                    px += -0.4;
-                    pz += 1.7;
-                    // rotating the racecar
+                    px += -0.4; pz += 1.7;
                     const th = -40.0 * Math.PI / 180;
                     const c = Math.cos(th), sn = Math.sin(th);
                     const rx = c * px + sn * pz;
                     const rz = -sn * px + c * pz;
-                    // scaling down racecar uniformly
-                    px = rx * 0.87;
-                    pz = rz * 0.87;
-                    py *= 0.87;
+                    px = rx * 0.87; pz = rz * 0.87; py *= 0.87;
                 }
 
-                // multiplying vertex position by view-projection matrix to get clip space position
-                const x4 = px * vp[0] + py * vp[4] + pz * vp[8] + vp[12];
-                const y4 = px * vp[1] + py * vp[5] + pz * vp[9] + vp[13];
-                const z4 = px * vp[2] + py * vp[6] + pz * vp[10] + vp[14];
-
-                // calculating W component for perspective division
-                const w4 = px * vp[3] + py * vp[7] + pz * vp[11] + vp[15];
-                const invW = 1.0 / w4;
-
-                // storing normalized device coordinate for x y z 
-                work[i + 0] = x4 * invW;
-                work[i + 1] = y4 * invW;
-                work[i + 2] = z4 * invW;
-
-                // copying normal coordinates XYZ unchanged
-                work[i + 3] = orig[i + 3];
-                work[i + 4] = orig[i + 4];
-                work[i + 5] = orig[i + 5];
-
-                // copying uv coordinates UVRGB unchanged
-                work[i + 6] = orig[i + 6];
-                work[i + 7] = orig[i + 7];
-                work[i + 8] = orig[i + 8];
-                work[i + 9] = orig[i + 9];
-                work[i + 10] = orig[i + 10];
+                // Write world coordinates, shader will do projection
+                work[i+0] = px; work[i+1] = py; work[i+2] = pz; 
+                // Copy normal/uv/color unchanged
+                for(let k=3; k<11; k++) work[i+k] = orig[i+k];
             }
-
-            // writing the transformed vertex data back to the GPU vertex buffer
-            device.queue.writeBuffer(s.vertexBuffer, 0, s.workingVertexData);
+            device.queue.writeBuffer(s.vertexBuffer, 0, work);
         }
 
-        // setting the current texture view as the color attachment for rendering
+        // 5. Draw
         renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
-        // setting the depth texture view as the depth-stencil attachment for depth testing
-        renderPassDescriptor.depthStencilAttachment = depthTexture ? {
-            // creating view for depth texture
-            view: depthTexture.createView(),
-            // value to clear depth buffer with
-            depthClearValue: 1.0,
-            depthLoadOp: 'clear',
-            depthStoreOp: 'store',
-        } : undefined;
+        renderPassDescriptor.depthStencilAttachment.view = depthTexture.createView();
 
-        // creating command encoder to encode rendering commands
-        const encoder = device.createCommandEncoder({ label: 'the encoder' });
-        // starting render pass with the configured descriptor
+        const encoder = device.createCommandEncoder();
         const pass = encoder.beginRenderPass(renderPassDescriptor);
-        // setting the render pipeline to use for this render pass
         pass.setPipeline(pipeline);
-        // drawing each submesh
+        
+        pass.setBindGroup(0, bindGroup0); // Uniforms
+
         for (const s of submeshes) {
-            // setting the bind group for textures and samplers
-            pass.setBindGroup(0, s.bindGroup);
+            pass.setBindGroup(1, s.bindGroup); // Textures
             pass.setVertexBuffer(0, s.vertexBuffer);
             pass.setIndexBuffer(s.indexBuffer, s.indexFormat);
             pass.drawIndexed(s.indexCount);
         }
-        // ending the render pass and submitting the commands to the GPU queue
         pass.end();
         device.queue.submit([encoder.finish()]);
-
-        // scheduling next frame to be rendered
         requestAnimationFrame(render);
     }
 
-    // creating initial depth texture before first render
     createDepthTexture();
-    // starting the render loop 
     requestAnimationFrame(render);
 }
 

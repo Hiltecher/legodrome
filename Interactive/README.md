@@ -65,3 +65,40 @@ Last fixes to the environment were arms and faces of the minifigures in the audi
 This was the final result after cleaning my code and getting the desired quality of the scene imported from Blender to WebGPU
 
 <img src="../Snapshots/web5.png" width="400"/>
+
+## Implementing Lighting, Car Movement and Camera Movement (by Mano)
+
+The first issue I came across was that the original shader was unlit, meaning it displayed colors flatly with no sense of depth, shadows, or light sources. 
+
+Therefore, I upgraded the shader to calculate normals and light reflection.
+
+I then implemented the calcSpotlight function in WGSL (WebGPU Shading Language) and placed two spotlights high up to illuminate the track.
+
+I added an event listener so that the lights would toggle on and off whenever I press the L key.
+
+I then realised the scene was too dark, so I multiplied the light intensity by 15 in the shader.
+
+To make the TV screen stand out, I added a logic flag (glow: true). If a material has this flag, multiply its vertex color by 5, forcing it to appear bright even when the lights are toggled off.
+
+My first mouse camera implementation was static and hard to control, so I extracted the logic into a separate camera.js class and added arrow key functionality.
+
+I then identified the car was floating in the air, an issue Ivan would have been unable to detect as he previously coud not observe the diorama from different angles. So I adjusted the car's position.
+
+I then changed the camera's starting distance from 30 to 5 so the user starts nearby the diorama rather than looking from far away.
+
+I then added "damping" to the camera update loop, making the camera drift to a stop rather than halting instantly.
+
+I then added car interactivity. Initially, the car was a static object stuck in one spot. So I introduced carX, carZ, and carAngle to track the car's position in the world.
+
+I then added keydown and keyup listeners to track WASD inputs.
+
+In the render loop, I use trigonometry (Math.sin and Math.cos) to calculate movement.
+
+W/S: Moves the car forward/backward based on its current angle.
+
+A/D: Increases/Decreases the angle (steering).
+
+The car was moving in the wrong directions because 3D model was exported facing right but my math assumed forward, so I applied a -90 degree rotational offset to the car mesh.
+
+Finally I added a GUI so users know what controls to use.
+

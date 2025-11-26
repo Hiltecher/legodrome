@@ -13,8 +13,6 @@ const MATERIALS = {
     // Legodrome materials
     'Asphalt': { Kd: [0.8, 0.6, 0.4], map_Kd: 'asphalt.png' },
     'Bollard_Orange': { Kd: [0.800119, 0.258554, 0.000000], map_Kd: null },
-    'Camera_Black': { Kd: [0.000000, 0.000000, 0.000000], map_Kd: null },
-    'Camera_Black.001': { Kd: [0.000000, 0.000000, 0.000000], map_Kd: null },
     'Concrete': { Kd: [0.8, 0.6, 0.4], map_Kd: 'Concrete032_1K-JPG_Color.jpg' },
     'Emirates': { Kd: [0.8, 0.6, 0.4], map_Kd: 'emirates.png' },
     'Flash_Yellow': { Kd: [0.744446, 0.800197, 0.000000], map_Kd: null },
@@ -474,7 +472,7 @@ async function main() {
         const fov = 35 * Math.PI / 180;
         // getting the projection we need for 3D perspective
         const proj = wm.mat4.perspective(fov, aspect, 0.1, 100.0);
-        // creating view matrix to position camera looking at the models
+        // creating view matrix positioning camera looking at origin
         const view = wm.mat4.lookAt([-4, 3, 3], [0, 0, 0], [0, 1, 0]);
         // multiply projection and view matrices to get combined view-projection matrix
         const vp = wm.mat4.multiply(proj, view);

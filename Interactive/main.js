@@ -252,6 +252,8 @@ function parseOBJ(text) {
 
 // main function to initialize WebGPU, load shaders, create pipeline, load geometry and render the scene
 async function main() {
+    // 1. Add the UI Overlay
+    addControlsOverlay();
 
     // ---- WEBGPU SETUP ----
     // checking for webgpu support, hardware and adapter
@@ -632,8 +634,7 @@ async function main() {
                 let pz = (orig[i+2] - modelCenter[2]) * scale;
 
                 if (s.model === 'Racecar') {
-                    // 1. ROTATE
-                    // rotate the visuals to match the physics
+                    // Rotate the visuals to match the physics
                     const meshCorrection = -Math.PI / 2;
                     
                     const finalAngle = carAngle + meshCorrection;
@@ -647,10 +648,10 @@ async function main() {
                     px = rx; 
                     pz = rz;
 
-                    // 2. SCALE
+                    // scale the car
                     px *= 0.87; pz *= 0.87; py *= 0.87;
 
-                    // 3. TRANSLATE
+                    // translate the car
                     px += carX; 
                     pz += carZ;
                 }
@@ -687,6 +688,37 @@ async function main() {
     // creating initial depth texture before first render
     createDepthTexture();
     requestAnimationFrame(render);
+}
+
+function addControlsOverlay() {
+    // GUI to explain the controls
+    // CSS styles to define the GUI
+    const div = document.createElement('div');
+    div.style.position = 'absolute';
+    div.style.top = '10px';
+    div.style.left = '10px';
+    div.style.color = 'white';
+    div.style.fontFamily = 'monospace';
+    div.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    div.style.padding = '10px';
+    div.style.borderRadius = '5px';
+    div.style.pointerEvents = 'none';
+    div.style.userSelect = 'none';
+
+    // HTML code
+    div.innerHTML = `
+        <strong>CONTROLS</strong><br>
+        -----------<br>
+        <b>W / S</b> : Drive Forward/Back<br>
+        <b>A / D</b> : Turn Left/Right<br>
+        -----------<br>
+        <b>ARROWS</b>: Rotate Camera<br>
+        <b>+ / -</b> : Zoom Camera<br>
+        -----------<br>
+        <b>L</b> : Toggle Lights<br>
+    `;
+    
+    document.body.appendChild(div);
 }
 
 main();

@@ -1,7 +1,9 @@
 # IMPORTANT!
 ### Interactive website takes at most 30 seconds to load! Please make sure to give it some time :)
 ### Download Racecar.obj file and place in meshes directory before running live server.
+### Explanation video can be found at the link below, it was too big to add here.
 
+Watch Explanation Video: https://youtu.be/W7BIlRQtlVs
 Download Racecar.obj: https://drive.google.com/file/d/1Rw0tY8EuQFYHubfgT9umyL-C3DdrIgPa/view?usp=sharing
 
 It was too big to include as part of the repo.

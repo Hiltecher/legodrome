@@ -18,8 +18,8 @@ const MATERIALS = {
     'Bollard_Orange': { Kd: [0.800119, 0.258554, 0.000000], map_Kd: null },
     'Concrete': { Kd: [0.8, 0.6, 0.4], map_Kd: 'Concrete032_1K-JPG_Color.jpg' },
     'Emirates': { Kd: [0.8, 0.6, 0.4], map_Kd: 'emirates.png' },
-    'Flash_Yellow': { Kd: [0.744446, 0.800197, 0.000000], map_Kd: null },
-    'Flash_Yellow.001': { Kd: [0.744446, 0.800197, 0.000000], map_Kd: null },
+    'Flash_Yellow': { Kd: [0.744446, 0.800197, 0.000000], map_Kd: null, glow: true },
+    'Flash_Yellow.001': { Kd: [0.744446, 0.800197, 0.000000], map_Kd: null, glow: true },
     'Grandstand_Grey': { Kd: [0.632091, 0.606932, 0.625752], map_Kd: null },
     'Grandstand_White': { Kd: [1.000000, 0.971443, 0.971443], map_Kd: null },
     'Grass.002': { Kd: [0.800000, 0.800000, 0.800000], map_Kd: 'grass.png' },
@@ -82,7 +82,7 @@ const MATERIALS = {
     'TV_Plastic': { Kd: [0.8, 0.6, 0.4], map_Kd: 'Plastic012A_1K-JPG_Color.jpg' },
     'TV_Plastic.001': { Kd: [0.8, 0.6, 0.4], map_Kd: 'Plastic012A_1K-JPG_Color.jpg' },
     'TV_Plastic.002': { Kd: [0.8, 0.6, 0.4], map_Kd: 'Plastic012A_1K-JPG_Color.jpg' },
-    'TV_Screen': { Kd: [0.8, 0.6, 0.4], map_Kd: 'sign.png' },
+    'TV_Screen': { Kd: [0.8, 0.6, 0.4], map_Kd: 'sign.png', glow: true },
     'Tarmac': { Kd: [0.8, 0.6, 0.4], map_Kd: 'Asphalt025C_1K-JPG_Color.jpg' },
     'Void': { Kd: [0.000000, 0.000000, 0.000000], map_Kd: null },
     'WhiteLine.001': { Kd: [0.800000, 0.800000, 0.800000], map_Kd: null },
@@ -157,7 +157,13 @@ function parseOBJ(text) {
         const mat = MATERIALS[currentMaterial];                 // get material definition previously hardcoded
 
         // use material color or default to white if can't find it
-        const color = mat?.map_Kd ? [1, 1, 1] : (mat?.Kd || [0.8, 0.6, 0.4]);
+        // Also, check for glow. If true, multiply color by 5.0
+        let baseColor = mat?.map_Kd ? [1, 1, 1] : (mat?.Kd || [0.8, 0.6, 0.4]);
+        if (mat?.glow) {
+            // Multiply RGB by 5 to make it super bright
+            baseColor = [baseColor[0] * 5, baseColor[1] * 5, baseColor[2] * 5];
+        }
+        const color = baseColor;
 
         // calculate index for the new vertex, divide by 11 since each vertex has 11 floats
         const idx = mesh.vertices.length / 11;
@@ -295,13 +301,13 @@ async function main() {
             @location(0) normal : vec3<f32>,
             @location(1) uv : vec2<f32>,
             @location(2) color : vec3<f32>,
-            @location(3) worldPos : vec3<f32>,  // New: Actual 3D position for lighting calculations
+            @location(3) worldPos : vec3<f32>,
         };
 
         @vertex
         fn vs_main(@location(0) pos : vec3<f32>, @location(1) norm : vec3<f32>, @location(2) uv : vec2<f32>, @location(3) col : vec3<f32>) -> VertexOut {
             var out : VertexOut;
-            // Project the position to the screen using the Matrix
+            // Project the position to the screen using the matrix
             out.Position = uniforms.viewProjectionMatrix * vec4<f32>(pos, 1.0);
             out.worldPos = pos; // Pass the real 3D position to the pixel shader
             out.normal = norm;
@@ -314,28 +320,28 @@ async function main() {
         @group(1) @binding(0) var mySampler : sampler;
         @group(1) @binding(1) var myTexture : texture_2d<f32>;
 
-        // Helper function to calculate Spotlight logic
+        // Helper function to calculate spotlight logic
         fn calcSpotlight(pos: vec3<f32>, dir: vec3<f32>, worldPos: vec3<f32>, normal: vec3<f32>, camPos: vec3<f32>) -> vec3<f32> {
             let lightToPixel = normalize(pos - worldPos);
             
             // 1. Cone logic: Check if pixel is inside the spotlight beam
             let angle = dot(-lightToPixel, normalize(dir));
-            if (angle < 0.9) { return vec3<f32>(0.0); } // Outside the cone? Return black.
+            if (angle < 0.9) { return vec3<f32>(0.0); }
             
-            // 2. Diffuse: How much does the surface face the light?
+            // 2. Diffusion of light
             let diff = max(dot(normal, lightToPixel), 0.0);
             
-            // 3. Specular: Shiny reflection (Phong model)
+            // 3. Specular: Shiny reflection
             let reflectDir = reflect(-lightToPixel, normal);
             let viewDir = normalize(camPos - worldPos);
             let spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0); // 32.0 = Shininess
 
-            // 4. Distance: Light gets weaker further away
+            // 4. Distance, so light gets weaker further away
             let dist = distance(pos, worldPos);
             let atten = 1.0 / (1.0 + 0.1 * dist + 0.05 * dist * dist);
 
-            // Combine results (Light color is warm white)
-            return (diff + spec) * vec3<f32>(1.0, 0.95, 0.8) * atten * 5.0;
+            // Combine results , light colour is warm white
+            return (diff + spec) * vec3<f32>(1.0, 0.95, 0.8) * atten * 15.0;
         }
 
         @fragment
@@ -344,10 +350,10 @@ async function main() {
             let texColor = textureSample(myTexture, mySampler, in.uv) * vec4<f32>(in.color, 1.0);
             let normal = normalize(in.normal);
             
-            // Ambient light (Base brightness so shadows aren't pitch black)
-            let ambient = vec3<f32>(0.2, 0.2, 0.25); 
+            // Ambient light so that it isn't pitch black when light is off
+            let ambient = vec3<f32>(0.2, 0.2, 0.25);
             
-            // Calculate two Spotlights (Left and Right TV stands)
+            // Calculate two Spotlights
             let spot1 = calcSpotlight(vec3<f32>(-15.0, 15.0, -8.0), vec3<f32>(1.0, -0.8, 0.5), in.worldPos, normal, uniforms.cameraPosition);
             let spot2 = calcSpotlight(vec3<f32>(-15.0, 15.0, 8.0), vec3<f32>(1.0, -0.8, -0.5), in.worldPos, normal, uniforms.cameraPosition);
             
@@ -427,7 +433,7 @@ async function main() {
     const modelCenter = [0.0, 0.0, 0.0];
     const scale = 0.025;
     const legodromeOffsetY = 0.0;
-    const racecarOffsetY = 0.8;
+    const racecarOffsetY = 0.08;
 
     // using sampler for texture filtering to ensure smooth textures at all distances
     const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear' });
@@ -542,14 +548,31 @@ async function main() {
     }
 
     // Initialise camera and lights
-    const camera = new Camera(canvas, 30, 0, 0.5);
+    const camera = new Camera(canvas, 5, 0, 0.5);
     let lightToggle = 1.0;
 
+    // Car physics variables
+    let carX = -0.2; 
+    let carZ = 0.5; 
+    let carAngle = -40 * Math.PI / 180;
+    const keys = { w: false, a: false, s: false, d: false };
+
     window.addEventListener('keydown', (e) => {
-        if (e.key.toLowerCase() === 'l') {
+        const k = e.key.toLowerCase();
+        
+        // Mark the key as pressed
+        if (keys.hasOwnProperty(k)) keys[k] = true;
+
+        // Toggle the light
+        if (k === 'l') {
             lightToggle = lightToggle > 0.5 ? 0.0 : 1.0;
             console.log("Lights:", lightToggle ? "ON" : "OFF");
         }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const k = e.key.toLowerCase();
+        if (keys.hasOwnProperty(k)) keys[k] = false;
     });
 
     function render() {
@@ -563,7 +586,26 @@ async function main() {
             createDepthTexture();
         }
 
-        // 2. Update camera & matrices
+        // 2. Car Physics
+        const speed = 0.02;
+        const turnSpeed = 0.05;
+
+        // Rotation (A/D)
+        if (keys.a) carAngle += turnSpeed;
+        if (keys.d) carAngle -= turnSpeed;
+
+        // Movement (W/S)
+        // Sin/Cos to separate the speed into X and Z movement
+        if (keys.w) {
+            carX -= Math.sin(carAngle) * speed; 
+            carZ -= Math.cos(carAngle) * speed;
+        }
+        if (keys.s) {
+            carX += Math.sin(carAngle) * speed; 
+            carZ += Math.cos(carAngle) * speed;
+        }
+
+        // 3. Update camera & matrices
         camera.update();
         const fov = 35 * Math.PI / 180;
         const proj = wm.mat4.perspective(fov, width / height, 0.1, 100.0);
@@ -571,14 +613,14 @@ async function main() {
         const vp = wm.mat4.multiply(proj, view);
         const camPos = camera.getPosition();
 
-        // 3. Upload uniforms (matrix + light info)
+        // 4. Upload uniforms (matrix + light info)
         const f32 = new Float32Array(32); 
         f32.set(vp, 0);                 // 0-15: ViewProjection
         f32.set(camPos, 16);            // 16-18: Camera Position
         f32.set([lightToggle], 20);     // 20: Light Toggle
         device.queue.writeBuffer(uniformBuffer, 0, f32);
 
-        // 4. Update geometry
+        // 5. Update geometry
         for (const s of submeshes) {
             const orig = s.originalVertexData;
             const work = s.workingVertexData;
@@ -590,12 +632,27 @@ async function main() {
                 let pz = (orig[i+2] - modelCenter[2]) * scale;
 
                 if (s.model === 'Racecar') {
-                    px += -0.4; pz += 1.7;
-                    const th = -40.0 * Math.PI / 180;
-                    const c = Math.cos(th), sn = Math.sin(th);
+                    // 1. ROTATE
+                    // rotate the visuals to match the physics
+                    const meshCorrection = -Math.PI / 2;
+                    
+                    const finalAngle = carAngle + meshCorrection;
+
+                    const c = Math.cos(finalAngle);
+                    const sn = Math.sin(finalAngle);
+                    
                     const rx = c * px + sn * pz;
                     const rz = -sn * px + c * pz;
-                    px = rx * 0.87; pz = rz * 0.87; py *= 0.87;
+                    
+                    px = rx; 
+                    pz = rz;
+
+                    // 2. SCALE
+                    px *= 0.87; pz *= 0.87; py *= 0.87;
+
+                    // 3. TRANSLATE
+                    px += carX; 
+                    pz += carZ;
                 }
 
                 // Write world coordinates, shader will do projection
@@ -606,7 +663,7 @@ async function main() {
             device.queue.writeBuffer(s.vertexBuffer, 0, work);
         }
 
-        // 5. Draw
+        // 6. Draw
         renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
         renderPassDescriptor.depthStencilAttachment.view = depthTexture.createView();
 
@@ -627,6 +684,7 @@ async function main() {
         requestAnimationFrame(render);
     }
 
+    // creating initial depth texture before first render
     createDepthTexture();
     requestAnimationFrame(render);
 }
